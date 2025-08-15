@@ -78,9 +78,7 @@ model_name = st.sidebar.selectbox(
 )
 temperature = st.sidebar.slider("Temperature", 0.0, 1.0, 0.2, 0.1)
 
-llm = ChatGroq(
-    api_key=GROQ_API_KEY,
-    model_name=model_name,
+llm = ChatGroq(api_key=GROQ_API_KEY, model=model_name,
     temperature=temperature,
 )
 
