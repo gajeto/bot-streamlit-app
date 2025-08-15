@@ -76,7 +76,7 @@ def make_data(n_rows: int, seed: int, trend: float, season_amp: float, noise_sd:
         "date": sample_dates,
         "category": rng.choice(categories, size=n_rows, replace=True),
         "region": rng.choice(regions, size=n_rows, replace=True),
-        "value": value.clip(lower=0.0),
+        "value": np.clip(value, 0.0, None),
         "units": units.astype(int)
     })
     df["month"] = df["date"].dt.month
