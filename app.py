@@ -73,7 +73,7 @@ TOOLS = [calculator, current_time]
 st.sidebar.header("Model Settings")
 model_name = st.sidebar.selectbox(
     "Groq model",
-    options=["llama3-8b-8192", "llama3-70b-8192"],
+    options=["llama-4-scout-17b-16e-instruct"],
     index=0,
 )
 temperature = st.sidebar.slider("Temperature", 0.0, 1.0, 0.2, 0.1)
