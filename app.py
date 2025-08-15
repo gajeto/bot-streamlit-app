@@ -1,5 +1,5 @@
 """
-Streamlit EDA on Synthetic Data (Pro)
+Streamlit Test
 - Domain context presets (Retail, E‑commerce, Ride-hailing, Hospital).
 - Controls for trend, seasonality, noise, and an external index.
 - Advanced filters (numeric ranges, text search, top‑N) and derived features.
@@ -26,7 +26,6 @@ from sklearn.metrics import mean_squared_error, r2_score
 
 st.set_page_config(page_title="Synthetic EDA + Modeling (Pro)", page_icon="🧪", layout="wide")
 
-# -------------------------- Helpers --------------------------
 def kpi_delta(curr: float, prev: float) -> float:
     if prev == 0 or np.isnan(prev):
         return 0.0
@@ -35,15 +34,14 @@ def kpi_delta(curr: float, prev: float) -> float:
 @st.cache_data
 def make_external_index(n: int, seed: int, strength: float) -> np.ndarray:
     rng = np.random.default_rng(seed + 111)
-    base = np.cumsum(rng.normal(0, 0.3, n))  # random walk
-    seasonal = np.sin(np.linspace(0, 6 * math.pi, n))  # multi-cycle seasonality
+    base = np.cumsum(rng.normal(0, 0.3, n))
+    seasonal = np.sin(np.linspace(0, 6 * math.pi, n))
     idx = (base + seasonal) * strength
-    return (idx - np.min(idx)) / (np.ptp(idx) + 1e-9)  # scale 0-1
+    return (idx - np.min(idx)) / (np.ptp(idx) + 1e-9)
 
 @st.cache_data
 def make_data(n_rows: int, seed: int, trend: float, season_amp: float, noise_sd: float, ext_strength: float, context: str) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    # Context presets
     contexts = {
         "Retail Coffee Chain": dict(categories=["Coffee","Tea","Pastry","Sandwich"], regions=["North","South","East","West"], value_name="revenue", units_name="orders"),
         "E‑commerce": dict(categories=["Electronics","Fashion","Home","Sports"], regions=["NA","EU","APAC","LATAM"], value_name="sales", units_name="orders"),
@@ -57,7 +55,6 @@ def make_data(n_rows: int, seed: int, trend: float, season_amp: float, noise_sd:
     categories = np.array(meta["categories"])
     regions = np.array(meta["regions"])
 
-    # Base latent signal with trend + seasonality
     t_idx = rng.choice(np.arange(365), size=n_rows, replace=True)
     trend_sig = trend * (t_idx / 365.0)
     season_sig = season_amp * np.sin(2 * np.pi * (t_idx / 7.0)) + 0.5 * season_amp * np.sin(2 * np.pi * (t_idx / 30.0))
@@ -67,17 +64,17 @@ def make_data(n_rows: int, seed: int, trend: float, season_amp: float, noise_sd:
     base = 100 + 50 * rng.gamma(2.0, 1.0, n_rows) + 40 * trend_sig + 30 * season_sig + 60 * ext_sig
     noise = rng.normal(0, noise_sd, n_rows)
     value = np.round(base + noise, 2)
+    value = np.clip(value, 0.0, None)  # <-- FIX: numpy clip with positional args
 
-    # Units tied loosely to value
-    units = np.clip(np.round(10 + 0.05 * base + rng.normal(0, 5, n_rows)), 0, None)
+    units = np.clip(np.round(10 + 0.05 * base + rng.normal(0, 5, n_rows)), 0, None).astype(int)
 
     df = pd.DataFrame({
         "id": np.arange(1, n_rows + 1),
         "date": sample_dates,
         "category": rng.choice(categories, size=n_rows, replace=True),
         "region": rng.choice(regions, size=n_rows, replace=True),
-        "value": np.clip(value, 0.0, None),
-        "units": units.astype(int)
+        "value": value,
+        "units": units
     })
     df["month"] = df["date"].dt.month
     df["dayofweek"] = df["date"].dt.dayofweek
@@ -96,20 +93,17 @@ def add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values("date").copy()
     df["value_per_unit"] = df["value"] / df["units"].replace(0, np.nan)
     df["value_per_unit"] = df["value_per_unit"].fillna(0.0)
-    # Rolling features per region
     df["rolling_7_value"] = df.groupby("region")["value"].transform(lambda s: s.rolling(7, min_periods=1).mean())
     df["lag_1_value"] = df.groupby("region")["value"].shift(1).fillna(df["value"].median())
     return df
 
 def safe_eval_custom(df: pd.DataFrame, expr: str) -> pd.Series:
-    # Allow only basic arithmetic operations and selected columns
     allowed_cols = {"value","units","value_per_unit","rolling_7_value","lag_1_value","month","dayofweek"}
     tokens_ok = all([tok in allowed_cols or tok.replace("_","").isalpha() == False for tok in expr.replace("("," ").replace(")"," ").replace("+"," ").replace("-"," ").replace("*"," ").replace("/"," ").split() if tok])
     if not tokens_ok:
         raise ValueError("Expression contains disallowed tokens. Use columns like value, units, value_per_unit, rolling_7_value, lag_1_value, month, dayofweek.")
     return pd.Series(eval(expr, {"__builtins__": {}}, dict(df)), index=df.index)
 
-# -------------------------- Sidebar --------------------------
 st.sidebar.header("🏷️ Context & Data Controls")
 context = st.sidebar.selectbox("Domain context", ["Retail Coffee Chain","E‑commerce","Ride‑hailing","Hospital"])
 n_rows = st.sidebar.slider("Rows", 500, 120_000, 10_000, step=500)
@@ -125,36 +119,31 @@ df = make_data(n_rows, seed, trend, season_amp, noise_sd, ext_strength, context)
 df = add_engineered_features(df)
 
 st.sidebar.subheader("Filters")
-# Date
 min_date, max_date = df["date"].min(), df["date"].max()
 date_range = st.sidebar.date_input("Date range", value=(min_date, max_date), min_value=min_date, max_value=max_date)
 if isinstance(date_range, tuple) and len(date_range) == 2:
     start_date, end_date = map(pd.to_datetime, date_range)
     df = df[(df["date"] >= start_date) & (df["date"] <= end_date)]
 
-# Text search
 query = st.sidebar.text_input("Search category/region")
 if query:
     q = query.strip().lower()
     df = df[df["category"].str.lower().str.contains(q) | df["region"].str.lower().str.contains(q)]
 
-# Numeric filters
 val_min, val_max = float(df["value"].min()), float(df["value"].max())
 units_min, units_max = int(df["units"].min()), int(df["units"].max())
 v_range = st.sidebar.slider("Filter value range", val_min, val_max, (val_min, val_max))
 u_range = st.sidebar.slider("Filter units range", units_min, units_max, (units_min, units_max))
 df = df[(df["value"].between(*v_range)) & (df["units"].between(*u_range))]
 
-# Top‑N by value per category
 topn = st.sidebar.slider("Top‑N per category by value", 0, 50, 0, 1)
 if topn > 0:
     df = df.sort_values(["category","value"], ascending=[True, False]).groupby("category").head(topn)
 
-# Custom feature
 st.sidebar.subheader("Custom feature")
 with st.sidebar.expander("Define a custom feature (optional)"):
     st.write("Use arithmetic on columns: value, units, value_per_unit, rolling_7_value, lag_1_value, month, dayofweek")
-    cf_expr = st.text_input("Expression, e.g., value/ (1+units) + 0.1*rolling_7_value", value="")
+    cf_expr = st.text_input("Expression, e.g., value/(1+units) + 0.1*rolling_7_value", value="")
     cf_name = st.text_input("Feature name", value="custom_feat")
     if cf_expr:
         try:
@@ -163,7 +152,6 @@ with st.sidebar.expander("Define a custom feature (optional)"):
         except Exception as e:
             st.error(str(e))
 
-# -------------------------- Header & Context --------------------------
 titles = {
     "Retail Coffee Chain": ("☕ Retail Coffee Chain – Daily Performance", "Orders and revenue simulated across regions."),
     "E‑commerce": ("🛒 E‑commerce – Sales Dashboard", "Orders and sales across global regions."),
@@ -174,8 +162,6 @@ title, subtitle = titles[context]
 st.title(title)
 st.caption(subtitle)
 
-# -------------------------- KPIs --------------------------
-# Compute prior 30-day period for growth
 df_sorted = df.sort_values("date")
 cutoff = df_sorted["date"].max() - pd.Timedelta(days=30)
 recent = df_sorted[df_sorted["date"] > cutoff]
@@ -204,7 +190,6 @@ k6.metric("Top cat / region", f"{(top_cat[0] if top_cat else '-') } / {(top_reg[
 with st.expander("🔎 Preview data", expanded=False):
     st.dataframe(df.head(100), use_container_width=True)
 
-# -------------------------- Grouping & Aggregation --------------------------
 st.subheader("🧮 Aggregation & Grouping")
 time_grain = st.selectbox("Time grain for date", ["None","Day","Week","Month","Quarter"])
 agg = st.selectbox("Aggregation", ["sum","mean","median","min","max"])
@@ -229,7 +214,6 @@ with st.expander("📥 Export grouped data (CSV)", expanded=False):
     buf = io.StringIO(); gdf.to_csv(buf, index=False)
     st.download_button("Download grouped.csv", data=buf.getvalue(), file_name="grouped.csv", mime="text/csv")
 
-# -------------------------- Subplots Visualization --------------------------
 st.subheader("📊 Multi-Chart Subplots")
 sub_col1, sub_col2 = st.columns([2,1])
 
@@ -264,21 +248,26 @@ def place_trace(trace):
 
 if use_bar:
     xv = gdf.index if x_col == "index" else gdf[x_col]
-    place_trace(go.Bar(x=xv, y=gdf[numeric_col], name="Bar"))
+    fig.add_bar(x=xv, y=gdf[numeric_col], name="Bar", row=r, col=c)  # using add_bar keeps subplot titles aligned
+    c += 1
+    if c > cols: c = 1; r = min(r + 1, rows)
+
 if use_line:
     gdf_sorted = gdf.sort_values(by=x_col) if x_col in gdf.columns else gdf
     xv = gdf_sorted[x_col] if x_col in gdf_sorted.columns else gdf_sorted.index
-    place_trace(go.Scatter(x=xv, y=gdf_sorted[numeric_col], mode="lines+markers", name="Line"))
+    fig.add_scatter(x=xv, y=gdf_sorted[numeric_col], mode="lines+markers", name="Line", row=r, col=c)
+    c += 1
+    if c > cols: c = 1; r = min(r + 1, rows)
+
 if use_pie:
     pie_dim_candidates = [c for c in ["category","region"] if c in gdf.columns]
     pie_dim = st.selectbox("Pie slice by", options=pie_dim_candidates or ["category"], index=0)
     pie_df = group_dataframe(df_plot, [pie_dim], agg)
-    place_trace(go.Pie(labels=pie_df[pie_dim], values=pie_df[numeric_col], name="Pie", hole=0.3))
+    fig.add_pie(labels=pie_df[pie_dim], values=pie_df[numeric_col], name="Pie", hole=0.3, row=r, col=c)
 
 fig.update_layout(height=520 if rows == 1 else 820, showlegend=False)
 st.plotly_chart(fig, use_container_width=True)
 
-# -------------------------- Feature Selection & Modeling --------------------------
 st.subheader("🧠 Feature Selection & Regression Modeling")
 all_features = ["units","month","dayofweek","category","region","value_per_unit","rolling_7_value","lag_1_value"]
 default_feats = ["units","category","region","rolling_7_value"]
@@ -327,10 +316,13 @@ pred_df = None
 if train_btn:
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
-    rmse = mean_squared_error(y_test, y_pred, squared=False)
-    r2 = r2_score(y_test, y_pred)
-
-    m1, m2, m3 = st.columns(3)
+# Ensure 1D float arrays for metrics and compute RMSE manually (sklearn-version safe)
+y_true_np = pd.Series(y_test).astype(float).to_numpy().ravel()
+y_pred_np = (pd.Series(y_pred).astype(float).to_numpy().ravel()
+             if not hasattr(y_pred, 'ravel') else pd.Series(y_pred.ravel()).astype(float).to_numpy())
+rmse = float(np.sqrt(np.mean((y_true_np - y_pred_np) ** 2)))
+r2 = r2_score(y_true_np, y_pred_np)
+m1, m2, m3 = st.columns(3)
     m1.metric("RMSE", f"{rmse:,.3f}")
     m2.metric("R²", f"{r2:,.3f}")
     m3.metric("Test size", f"{len(y_test):,} rows")
@@ -345,7 +337,6 @@ if train_btn:
     buf_pred = io.StringIO(); pred_df.to_csv(buf_pred, index=False)
     st.download_button("Download predictions.csv", data=buf_pred.getvalue(), file_name="predictions.csv", mime="text/csv")
 
-# -------------------------- Exports --------------------------
 st.subheader("📤 Export Results")
 c1, c2, c3 = st.columns(3)
 
