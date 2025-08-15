@@ -71,14 +71,14 @@ TOOLS = [calculator, current_time]
 
 # -------------------- LLM (Groq) --------------------
 st.sidebar.header("Model Settings")
-model_name = st.sidebar.selectbox(
+model = st.sidebar.selectbox(
     "Groq model",
     options=["llama-4-scout-17b-16e-instruct"],
     index=0,
 )
 temperature = st.sidebar.slider("Temperature", 0.0, 1.0, 0.2, 0.1)
 
-llm = ChatGroq(api_key=GROQ_API_KEY, model=model_name,
+llm = ChatGroq(api_key=GROQ_API_KEY, model=model,
     temperature=temperature,
 )
 
